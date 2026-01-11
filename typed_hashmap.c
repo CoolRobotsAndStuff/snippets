@@ -14,7 +14,13 @@
 
 #define TYPED_HASH_MAP(struct_name, func_prefix, key_type, val_type, hash_func, equals_func) \
                                                                            \
+struct struct_name;                                                        \
+                                                                           \
 typedef struct struct_name {                                               \
+    bool     (*next)(struct struct_name, size_t*);                         \
+    ssize_t  (*find)(struct struct_name, key_type);                        \
+    val_type (*get) (struct struct_name, key_type);                        \
+    void     (*set) (struct struct_name*, key_type, val_type);             \
     key_type* keys;                                                        \
     val_type* vals;                                                        \
     unsigned char* stat;                                                   \
@@ -28,23 +34,81 @@ typedef struct struct_name {                                               \
                                                                            \
 bool func_prefix##_next(struct_name hs, size_t* i) {                       \
     for (; (*i) < hs.capacity; (*i)++) {                                   \
-        if (hs.keys[*i] != (key_type){0}) return true;                     \
+        if (hs.stat[*i] == HASH_MAP_FULL) return true;                     \
     }                                                                      \
     return false;                                                          \
 }                                                                          \
                                                                            \
-void func_prefix##_init(struct_name* hm) {                                 \
-    hm->keys = malloc(HASH_MAP_INIT_COUNT * sizeof(*hm->keys));            \
-    hm->vals = malloc(HASH_MAP_INIT_COUNT * sizeof(*hm->vals));            \
-    hm->stat = malloc(HASH_MAP_INIT_COUNT * sizeof(*hm->stat));            \
-    memset(hm->keys, 0, HASH_MAP_INIT_COUNT * sizeof(*hm->keys));          \
-    memset(hm->vals, 0, HASH_MAP_INIT_COUNT * sizeof(*hm->vals));          \
-    memset(hm->stat, 0, HASH_MAP_INIT_COUNT * sizeof(*hm->stat));          \
+ssize_t func_prefix##_find(struct_name hm, key_type key) {                 \
+    assert(hm.capacity > 0);                                               \
+    size_t index = hash_func(hm.capacity, key);                            \
+    size_t init_index = index;                                             \
+    assert(index < hm.capacity);                                           \
+    while (1) switch (hm.stat[index]) {                                    \
+        case HASH_MAP_EMPTY: return -1;                                    \
+        case HASH_MAP_FULL:                                                \
+            if (equals_func(hm.keys[index], key)) return index;            \
+        case HASH_MAP_TOMBSTONE:                                           \
+            index = (index + 1)%hm.capacity;                               \
+            if (index == init_index) return -1;                            \
+            break;                                                         \
+        default: assert(0 && "UNREACHABLE: invalid status.");              \
+    }                                                                      \
 }                                                                          \
                                                                            \
+                                                                           \
+void func_prefix##_set(struct_name* hm, key_type key, val_type val) {      \
+    assert(hm->capacity > 0);                                              \
+    if (hm->count >= (hm->capacity*HASH_MAP_MAX_FILL_PERCENT/100)) {       \
+        size_t new_cap = hm->capacity*2;                                   \
+        key_type* new_keys = malloc(new_cap * sizeof(key_type));           \
+        val_type* new_vals = malloc(new_cap * sizeof(val_type));           \
+        char*     new_stat = malloc(new_cap * sizeof(*new_stat));          \
+        memset(new_keys, 0, new_cap * sizeof(key_type));                   \
+        memset(new_vals, 0, new_cap * sizeof(val_type));                   \
+        memset(new_stat, 0, new_cap * sizeof(*new_stat));                  \
+        for (size_t i = 0; hm_next(*hm, &i); ++i) {                        \
+            size_t new_index = hash_func(new_cap, hm->keys[i]);            \
+            assert(new_index < new_cap);                                   \
+            while (new_stat[new_index] == HASH_MAP_FULL)                   \
+                new_index = (new_index + 1)%new_cap;                       \
+            new_keys[new_index] = hm->keys[i];                             \
+            new_vals[new_index] = hm->vals[i];                             \
+            new_stat[new_index] = HASH_MAP_FULL;                           \
+        }                                                                  \
+        free(hm->keys);                                                    \
+        free(hm->vals);                                                    \
+        free(hm->stat);                                                    \
+        hm->keys = new_keys;                                               \
+        hm->vals = new_vals;                                               \
+        hm->stat = new_stat;                                               \
+        hm->capacity = new_cap;                                            \
+    }                                                                      \
+    ssize_t index = hm_find((*hm), key);                                   \
+    if (index < 0) {                                                       \
+        index = hash_func(hm->capacity, key);                              \
+        assert(index < hm->capacity);                                      \
+        while (hm->stat[index] == HASH_MAP_FULL)                           \
+            index = (index + 1)%hm->capacity;                              \
+        hm->count++;                                                       \
+    }                                                                      \
+    hm->keys[index] = hm->key_new == NULL ? key : hm->key_new(key);        \
+    hm->vals[index] = hm->val_new == NULL ? val : hm->val_new(val);        \
+    hm->stat[index] = HASH_MAP_FULL;                                       \
+}                                                                          \
+                                                                           \
+val_type func_prefix##_get(struct_name hm, key_type key) {                 \
+    ssize_t index = hm_find(hm, key);                                      \
+    if (index < 0) return (val_type){0};                                   \
+    return hm.vals[index];                                                 \
+}                                                                          \
 struct_name func_prefix##_new() {                                          \
     struct_name ret = {0};                                                 \
-    func_prefix##_init(&ret);                                              \
+    ret.next = func_prefix##_next;                                         \
+    ret.find = func_prefix##_find;                                         \
+    ret.get = func_prefix##_get;                                           \
+    ret.set = func_prefix##_set;                                           \
+    hm_init(&ret);                                                         \
     ret.capacity = HASH_MAP_INIT_COUNT;                                    \
     ret.count = 0;                                                         \
     return ret;                                                            \
@@ -55,115 +119,65 @@ struct_name func_prefix##_new_managed(key_type (*key_new)(key_type),       \
                                       val_type (*val_new)(val_type),       \
                                       void (*val_destr)(val_type)){        \
     struct_name ret = {0};                                                 \
+    ret.next = func_prefix##_next;                                         \
+    ret.find = func_prefix##_find;                                         \
+    ret.get = func_prefix##_get;                                           \
+    ret.set = func_prefix##_set;                                           \
     ret.key_new   = key_new;                                               \
     ret.key_destr = key_destr;                                             \
     ret.val_new   = val_new;                                               \
     ret.val_destr = val_destr;                                             \
-    func_prefix##_init(&ret);                                              \
+    hm_init(&ret);                                                         \
     ret.capacity = HASH_MAP_INIT_COUNT;                                    \
     return ret;                                                            \
-}                                                                          \
-                                                                           \
-void func_prefix##_free(struct_name* hs) {                                 \
-    for (size_t i = 0; func_prefix##_next(*hs, &i); ++i) {                 \
-        if (hs->key_destr != NULL) hs->key_destr(hs->keys[i]);             \
-        if (hs->val_destr != NULL) hs->val_destr(hs->vals[i]);             \
+}                                                                           
+
+#define hm_del(hm, .../* key */) do {                                      \
+    assert((hm)->capacity > 0);                                            \
+    ssize_t index = hm_find(*(hm), __VA_ARGS__);                           \
+    if (index < 0) break;                                                  \
+    (hm)->count--;                                                         \
+    memset(&(hm)->vals[index], 0, sizeof(*(hm)->vals));                    \
+    memset(&(hm)->keys[index], 0, sizeof(*(hm)->keys));                    \
+    (hm)->stat[index] = HASH_MAP_TOMBSTONE;                                \
+} while (0)                                                                 
+
+#define hm_get_copy(hm, ...) (                                             \
+    assert((hm).val_new != NULL &&                                         \
+           "hm_get_copy only available for managed hashmaps"),             \
+    (hm).val_new(hm_get((hm), __VA_ARGS__))                                \
+)                                                                           
+
+#define hm_init(hm) do {                                                   \
+    (hm)->keys = malloc(HASH_MAP_INIT_COUNT * sizeof(*(hm)->keys));        \
+    (hm)->vals = malloc(HASH_MAP_INIT_COUNT * sizeof(*(hm)->vals));        \
+    (hm)->stat = malloc(HASH_MAP_INIT_COUNT * sizeof(*(hm)->stat));        \
+    memset((hm)->keys, 0, HASH_MAP_INIT_COUNT * sizeof(*(hm)->keys));      \
+    memset((hm)->vals, 0, HASH_MAP_INIT_COUNT * sizeof(*(hm)->vals));      \
+    memset((hm)->stat, 0, HASH_MAP_INIT_COUNT * sizeof(*(hm)->stat));      \
+} while (0)                                                                 
+
+#define hm_exists(hm, ...) ((hm).find((hm), __VA_ARGS__) >= 0)
+
+#define hm_find(hm, ...) ((hm).find((hm), __VA_ARGS__))
+#define hm_get( hm, ...) ((hm).get((hm) , __VA_ARGS__))
+#define hm_set( hm, ...) ((hm)->set((hm), __VA_ARGS__))
+#define hm_next(hm, ...) ((hm).next((hm), __VA_ARGS__))
+
+#define hm_free(hm) do {                                                   \
+    for (size_t i = 0; hm_next(*(hm), &i); ++i) {                          \
+        if ((hm)->key_destr != NULL) (hm)->key_destr((hm)->keys[i]);       \
+        if ((hm)->val_destr != NULL) (hm)->val_destr((hm)->vals[i]);       \
     }                                                                      \
-    free(hs->keys);                                                        \
-    free(hs->vals);                                                        \
-    free(hs->stat);                                                        \
-    hs->keys = NULL;                                                       \
-    hs->vals = NULL;                                                       \
-    hs->stat = NULL;                                                       \
-    hs->capacity = 0;                                                      \
-    hs->count = 0;                                                         \
-}                                                                          \
-                                                                           \
-ssize_t func_prefix##_find(struct_name* hs, key_type key) {                \
-    assert(hs->capacity > 0);                                              \
-    size_t index = hash_func(hs->capacity, key);                           \
-    size_t init_index = index;                                             \
-    assert(index < hs->capacity);                                          \
-    while (1) switch (hs->stat[index]) {                                   \
-        case HASH_MAP_EMPTY: return -1;                                    \
-        case HASH_MAP_FULL:                                                \
-            if (equals_func(hs->keys[index], key)) return index;           \
-        case HASH_MAP_TOMBSTONE:                                           \
-            index = (index + 1)%hs->capacity;                              \
-            if (index == init_index) return -1;                            \
-            break;                                                         \
-        default: assert(0 && "UNREACHABLE: invalid status.");              \
-    }                                                                      \
-}                                                                          \
-                                                                           \
-                                                                           \
-void func_prefix##_set(struct_name* hs, key_type key, val_type val) {      \
-    assert(hs->capacity > 0);                                              \
-    if (hs->count >= (hs->capacity*HASH_MAP_MAX_FILL_PERCENT/100)) {       \
-        size_t new_cap = hs->capacity*2;                                   \
-        key_type* new_keys = malloc(new_cap * sizeof(key_type));           \
-        val_type* new_vals = malloc(new_cap * sizeof(val_type));           \
-        char*     new_stat = malloc(new_cap * sizeof(*new_stat));          \
-        memset(new_keys, 0, new_cap * sizeof(key_type));                   \
-        memset(new_vals, 0, new_cap * sizeof(val_type));                   \
-        memset(new_stat, 0, new_cap * sizeof(*new_stat));                  \
-        for (size_t i = 0; func_prefix##_next(*hs, &i); ++i) {             \
-            size_t new_index = hash_func(new_cap, hs->keys[i]);            \
-            assert(new_index < new_cap);                                   \
-            while (new_stat[new_index] == HASH_MAP_FULL)                   \
-                new_index = (new_index + 1)%new_cap;                       \
-            new_keys[new_index] = hs->keys[i];                             \
-            new_vals[new_index] = hs->vals[i];                             \
-            new_stat[new_index] = HASH_MAP_FULL;                           \
-        }                                                                  \
-        free(hs->keys);                                                    \
-        free(hs->vals);                                                    \
-        free(hs->stat);                                                    \
-        hs->keys = new_keys;                                               \
-        hs->vals = new_vals;                                               \
-        hs->stat = new_stat;                                               \
-        hs->capacity = new_cap;                                            \
-    }                                                                      \
-    ssize_t index = func_prefix##_find(hs, key);                           \
-    if (index < 0) {                                                       \
-        index = hash_func(hs->capacity, key);                              \
-        assert(index < hs->capacity);                                      \
-        while (hs->stat[index] == HASH_MAP_FULL)                           \
-            index = (index + 1)%hs->capacity;                              \
-        hs->count++;                                                       \
-    }                                                                      \
-    hs->keys[index] = hs->key_new == NULL ? key : hs->key_new(key);        \
-    hs->vals[index] = hs->val_new == NULL ? val : hs->val_new(val);        \
-    hs->stat[index] = HASH_MAP_FULL;                                       \
-}                                                                          \
-                                                                           \
-                                                                           \
-bool func_prefix##_exists(struct_name* hs, key_type key) {                 \
-    return func_prefix##_find(hs, key) >= 0;                               \
-}                                                                          \
-                                                                           \
-val_type func_prefix##_get(struct_name* hs, key_type key) {                \
-    ssize_t index = func_prefix##_find(hs, key);                           \
-    if (index < 0) return (val_type){0};                                   \
-    return hs->vals[index];                                                \
-}                                                                          \
-                                                                           \
-void func_prefix##_del(struct_name* hs, key_type key) {                    \
-    assert(hs->capacity > 0);                                              \
-    ssize_t index = func_prefix##_find(hs, key);                           \
-    if (index < 0) return;                                                 \
-    hs->count--;                                                           \
-    hs->vals[index] = (val_type){0};                                       \
-    hs->keys[index] = (key_type){0};                                       \
-    hs->stat[index] = HASH_MAP_TOMBSTONE;                                  \
-}                                                                          \
-                                                                           \
-val_type func_prefix##_get_copy(struct_name* hs, key_type key) {           \
-    assert(hs->val_new != NULL &&                                          \
-           #func_prefix"_get_copy only available for managed hashmaps");   \
-    return hs->val_new(func_prefix##_get(hs, key));                        \
-}                                                                          \
-                                                                           \
+    free((hm)->keys);                                                      \
+    free((hm)->vals);                                                      \
+    free((hm)->stat);                                                      \
+    (hm)->keys = NULL;                                                     \
+    (hm)->vals = NULL;                                                     \
+    (hm)->stat = NULL;                                                     \
+    (hm)->capacity = 0;                                                    \
+    (hm)->count = 0;                                                       \
+} while (0)                                                                 
 
 uint32_t FNV_1a(void *key, int length) {
     uint8_t *bytes = (uint8_t*)key;
@@ -187,12 +201,6 @@ void strfree(char* str) { free(str); }
 } Str2Str;
 Str2Str str2str_new(
 Str2Str str2str_new_managed(
-char* str2str_get(
-char* str2str_get_copy(
-void str2str_set(
-void str2str_del(
-bool str2str_exists(
-ssize_t str2str_find(
 */
 TYPED_HASH_MAP(Str2Str, str2str, char*, char*, str_hash, str_equals)
 
@@ -217,61 +225,60 @@ int main() {
     // Manual memory management
     Str2Str hm1 = str2str_new();
 
-    str2str_set(&hm1, "hello",  "world" );
-    str2str_set(&hm1, "mother", "fucker");
-    str2str_set(&hm1, "mother", "fucka" );
+    hm_set(&hm1, "hello",  "world" );
+    hm_set(&hm1, "mother", "fucker");
+    hm_set(&hm1, "mother", "fucka" );
 
     // get reference
-    printf("hello  = %s\n", str2str_get(&hm1, "hello" )); 
-    printf("mother = %s\n", str2str_get(&hm1, "mother"));
+    printf("hello  = %s\n", hm_get(hm1, "hello" )); 
+    printf("mother = %s\n", hm_get(hm1, "mother"));
 
 
     // Heap allocated, automatically managed
     Str2Str hm2 = str2str_new_managed(strdup, strfree, strdup, strfree);
 
-    str2str_set(&hm2, "hello",  "world" );
-    str2str_set(&hm2, "mother", "fucker");
-    str2str_set(&hm2, "mother", "fucka" );
+    hm_set(&hm2, "hello",  "world" );
+    hm_set(&hm2, "mother", "fucker");
+    hm_set(&hm2, "mother", "fucka" );
 
     // get reference
-    printf("hello  = %s\n", str2str_get(&hm2, "hello" )); 
-    printf("mother = %s\n", str2str_get(&hm2, "mother"));
+    printf("hello  = %s\n", hm_get(hm2, "hello" )); 
+    printf("mother = %s\n", hm_get(hm2, "mother"));
 
     // make a copy of value with provided constructor
-    printf("hello  = %s\n", str2str_get_copy(&hm2, "hello" )); 
-    printf("mother = %s\n", str2str_get_copy(&hm2, "mother"));
+    printf("hello  = %s\n", hm_get_copy(hm2, "hello" )); 
+    printf("mother = %s\n", hm_get_copy(hm2, "mother"));
 
-    str2str_set(&hm2, "foo", "bar" );
-    str2str_set(&hm2, "let's", "go" );
+    hm_set(&hm2, "foo", "bar" );
+    hm_set(&hm2, "let's", "go" );
 
     str2str_print(hm2);
-
 
     // Struct type (stored as value)
     Str2Foo hm3 = str2foo_new();
 
-    str2foo_set(&hm3, "cool",   (Foo){6.9, 420});
-    str2foo_set(&hm3, "cringe", (Foo){6.7, 67 });
+    hm_set(&hm3, "cool",   (Foo){6.9, 420});
+    hm_set(&hm3, "cringe", (Foo){6.7, 67 });
 
     // get reference
-    printf("cool   = %lf, %d\n", str2foo_get(&hm3, "cool").bar, str2foo_get(&hm3, "cool").baz); 
-    if (str2foo_exists(&hm3, "cringe")) {
-        printf("cringe = %lf, %d\n", str2foo_get(&hm3, "cringe").bar, str2foo_get(&hm3, "cringe").baz);
+    printf("cool   = %lf, %d\n", hm_get(hm3, "cool").bar, hm_get(hm3, "cool").baz); 
+    if (hm_exists(hm3, "cringe")) {
+        printf("cringe = %lf, %d\n", hm_get(hm3, "cringe").bar, hm_get(hm3, "cringe").baz);
     } else {
         puts("no cringe in this town");
     }
 
-    str2foo_del(&hm3, "cringe");
+    hm_del(&hm3, "cringe");
     puts("deleting cringe");
-    printf("cool   = %lf, %d\n", str2foo_get(&hm3, "cool").bar, str2foo_get(&hm3, "cool").baz); 
-    if (str2foo_exists(&hm3, "cringe")) {
-        printf("cringe = %lf, %d\n", str2foo_get(&hm3, "cringe").bar, str2foo_get(&hm3, "cringe").baz);
+    printf("cool   = %lf, %d\n", hm_get(hm3, "cool").bar, hm_get(hm3, "cool").baz); 
+    if (hm_exists(hm3, "cringe")) {
+        printf("cringe = %lf, %d\n", hm_get(hm3, "cringe").bar, hm_get(hm3, "cringe").baz);
     } else {
         puts("no cringe in this town");
     }
 
-    str2str_free(&hm1);
-    str2str_free(&hm2);
-    str2foo_free(&hm3);
+    hm_free(&hm1);
+    hm_free(&hm2);
+    hm_free(&hm3);
 }
 
