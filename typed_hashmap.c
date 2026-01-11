@@ -71,8 +71,10 @@ void func_prefix##_free(struct_name* hs) {                                 \
     }                                                                      \
     free(hs->keys);                                                        \
     free(hs->vals);                                                        \
+    free(hs->stat);                                                        \
     hs->keys = NULL;                                                       \
     hs->vals = NULL;                                                       \
+    hs->stat = NULL;                                                       \
     hs->capacity = 0;                                                      \
     hs->count = 0;                                                         \
 }                                                                          \
