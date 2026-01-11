@@ -99,8 +99,7 @@ ssize_t func_prefix##_find(struct_name* hs, key_type key) {                \
                                                                            \
 void func_prefix##_set(struct_name* hs, key_type key, val_type val) {      \
     assert(hs->capacity > 0);                                              \
-    hs->count++;                                                           \
-    if (hs->count > (hs->capacity*HASH_MAP_MAX_FILL_PERCENT/100)) {        \
+    if (hs->count >= (hs->capacity*HASH_MAP_MAX_FILL_PERCENT/100)) {       \
         size_t new_cap = hs->capacity*2;                                   \
         key_type* new_keys = malloc(new_cap * sizeof(key_type));           \
         val_type* new_vals = malloc(new_cap * sizeof(val_type));           \
@@ -131,6 +130,7 @@ void func_prefix##_set(struct_name* hs, key_type key, val_type val) {      \
         assert(index < hs->capacity);                                      \
         while (hs->stat[index] == HASH_MAP_FULL)                           \
             index = (index + 1)%hs->capacity;                              \
+        hs->count++;                                                       \
     }                                                                      \
     hs->keys[index] = hs->key_new == NULL ? key : hs->key_new(key);        \
     hs->vals[index] = hs->val_new == NULL ? val : hs->val_new(val);        \
@@ -152,9 +152,10 @@ void func_prefix##_del(struct_name* hs, key_type key) {                    \
     assert(hs->capacity > 0);                                              \
     ssize_t index = func_prefix##_find(hs, key);                           \
     if (index < 0) return;                                                 \
+    hs->count--;                                                           \
     hs->vals[index] = (val_type){0};                                       \
     hs->keys[index] = (key_type){0};                                       \
-    hs->stat[index] = HASH_MAP_TOMBSTONE;                                   \
+    hs->stat[index] = HASH_MAP_TOMBSTONE;                                  \
 }                                                                          \
                                                                            \
 val_type func_prefix##_get_copy(struct_name* hs, key_type key) {           \
