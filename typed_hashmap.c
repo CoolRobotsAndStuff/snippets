@@ -111,11 +111,11 @@ void func_prefix##_set(struct_name* hs, key_type key, val_type val) {      \
         for (size_t i = 0; func_prefix##_next(*hs, &i); ++i) {             \
             size_t new_index = hash_func(new_cap, hs->keys[i]);            \
             assert(new_index < new_cap);                                   \
-            while (new_stat[new_index] != HASH_MAP_EMPTY)                   \
+            while (new_stat[new_index] == HASH_MAP_FULL)                   \
                 new_index = (new_index + 1)%new_cap;                       \
             new_keys[new_index] = hs->keys[i];                             \
             new_vals[new_index] = hs->vals[i];                             \
-            new_stat[new_index] = hs->stat[i];                             \
+            new_stat[new_index] = HASH_MAP_FULL;                           \
         }                                                                  \
         free(hs->keys);                                                    \
         free(hs->vals);                                                    \
@@ -129,7 +129,7 @@ void func_prefix##_set(struct_name* hs, key_type key, val_type val) {      \
     if (index < 0) {                                                       \
         index = hash_func(hs->capacity, key);                              \
         assert(index < hs->capacity);                                      \
-        while (hs->stat[index] != HASH_MAP_EMPTY)                          \
+        while (hs->stat[index] == HASH_MAP_FULL)                           \
             index = (index + 1)%hs->capacity;                              \
     }                                                                      \
     hs->keys[index] = hs->key_new == NULL ? key : hs->key_new(key);        \
