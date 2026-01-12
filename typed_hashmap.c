@@ -1,3 +1,7 @@
+/* Rather large snippet meant to be copy-pasted directly into your code.
+ * Example usage at the end of the file.
+ * This is Public Domain.
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -6,11 +10,11 @@
 #include <assert.h>
 #if defined(_MSC_VER)
 #    include <malloc.h>
-#    define alloca _alloca 
+#    define alloca _alloca
 #else
 #    include <alloca.h>
 #endif
-#define HASH_MAP_INIT_COUNT 64
+#define HASH_MAP_INIT_CAPACITY 64
 
 #define HASH_MAP_EMPTY 0
 #define HASH_MAP_FULL 1
@@ -138,20 +142,23 @@ bool func_prefix##_check_get_copy(struct_name hm,                          \
     return true;                                                           \
 }                                                                          \
                                                                            \
+void func_prefix##__bind_funcs(struct_name* hm) {                          \
+    hm->next = func_prefix##_next;                                         \
+    hm->find = func_prefix##_find;                                         \
+    hm->get = func_prefix##_get;                                           \
+    hm->check_get = func_prefix##_check_get;                               \
+    hm->check_get_copy = func_prefix##_check_get_copy;                     \
+    hm->set = func_prefix##_set;                                           \
+    hm->key_print = key_printer;                                           \
+    hm->val_print = val_printer;                                           \
+}                                                                          \
+                                                                           \
 struct_name func_prefix##_new() {                                          \
     struct_name ret = {0};                                                 \
     ret.alloc = malloc;                                                    \
     ret.free = free;                                                       \
-    ret.next = func_prefix##_next;                                         \
-    ret.find = func_prefix##_find;                                         \
-    ret.get = func_prefix##_get;                                           \
-    ret.check_get = func_prefix##_check_get;                               \
-    ret.check_get_copy = func_prefix##_check_get_copy;                     \
-    ret.set = func_prefix##_set;                                           \
-    ret.key_print = key_printer;                                           \
-    ret.val_print = val_printer;                                           \
-    hm_init(&ret);                                                         \
-    ret.capacity = HASH_MAP_INIT_COUNT;                                    \
+    func_prefix##__bind_funcs(&ret);                                       \
+    hm__init_alloc(&ret);                                                  \
     ret.count = 0;                                                         \
     return ret;                                                            \
 }                                                                          \
@@ -163,20 +170,12 @@ struct_name func_prefix##_new_managed(key_type (*key_new)(key_type),       \
     struct_name ret = {0};                                                 \
     ret.alloc = malloc;                                                    \
     ret.free = free;                                                       \
-    ret.next = func_prefix##_next;                                         \
-    ret.find = func_prefix##_find;                                         \
-    ret.get = func_prefix##_get;                                           \
-    ret.check_get = func_prefix##_check_get;                               \
-    ret.check_get_copy = func_prefix##_check_get_copy;                     \
-    ret.set = func_prefix##_set;                                           \
     ret.key_new   = key_new;                                               \
     ret.key_destr = key_destr;                                             \
     ret.val_new   = val_new;                                               \
     ret.val_destr = val_destr;                                             \
-    ret.key_print = key_printer;                                           \
-    ret.val_print = val_printer;                                           \
-    hm_init(&ret);                                                         \
-    ret.capacity = HASH_MAP_INIT_COUNT;                                    \
+    func_prefix##__bind_funcs(&ret);                                       \
+    hm__init_alloc(&ret);                                                  \
     return ret;                                                            \
 }                                                                          \
                                                                            \
@@ -190,20 +189,12 @@ struct_name func_prefix##_new_custom_alloc(                                \
     struct_name ret = {0};                                                 \
     ret.alloc = alloc;                                                     \
     ret.free = free;                                                       \
-    ret.next = func_prefix##_next;                                         \
-    ret.find = func_prefix##_find;                                         \
-    ret.get = func_prefix##_get;                                           \
-    ret.check_get = func_prefix##_check_get;                               \
-    ret.check_get_copy = func_prefix##_check_get_copy;                     \
-    ret.set = func_prefix##_set;                                           \
     ret.key_new   = key_new;                                               \
     ret.key_destr = key_destr;                                             \
     ret.val_new   = val_new;                                               \
     ret.val_destr = val_destr;                                             \
-    ret.key_print = key_printer;                                           \
-    ret.val_print = val_printer;                                           \
-    hm_init(&ret);                                                         \
-    ret.capacity = HASH_MAP_INIT_COUNT;                                    \
+    func_prefix##__bind_funcs(&ret);                                       \
+    hm__init_alloc(&ret);                                                  \
     return ret;                                                            \
 }                                                                          \
                                                                            \
@@ -213,14 +204,7 @@ struct_name func_prefix##_new_on_stack(size_t capacity,                    \
                                        val_type* vals,                     \
                                        char* stat) {                       \
     struct_name ret = {0};                                                 \
-    ret.next = func_prefix##_next;                                         \
-    ret.find = func_prefix##_find;                                         \
-    ret.get = func_prefix##_get;                                           \
-    ret.check_get = func_prefix##_check_get;                               \
-    ret.check_get_copy = func_prefix##_check_get_copy;                     \
-    ret.set = func_prefix##_set;                                           \
-    ret.key_print = key_printer;                                           \
-    ret.val_print = val_printer;                                           \
+    func_prefix##__bind_funcs(&ret);                                       \
     ret.keys = keys;                                                       \
     ret.vals = vals;                                                       \
     ret.stat = stat;                                                       \
@@ -241,6 +225,16 @@ struct_name struct_name##__new_on_stack(size_t capacity,                   \
                                      stat);                                \
 }                                                                           
 
+#define hm__init_alloc(hm) do {                                            \
+    (hm)->keys = (hm)->alloc(HASH_MAP_INIT_CAPACITY * sizeof(*(hm)->keys));\
+    (hm)->vals = (hm)->alloc(HASH_MAP_INIT_CAPACITY * sizeof(*(hm)->vals));\
+    (hm)->stat = (hm)->alloc(HASH_MAP_INIT_CAPACITY * sizeof(*(hm)->stat));\
+    memset((hm)->keys, 0, HASH_MAP_INIT_CAPACITY * sizeof(*(hm)->keys));   \
+    memset((hm)->vals, 0, HASH_MAP_INIT_CAPACITY * sizeof(*(hm)->vals));   \
+    memset((hm)->stat, 0, HASH_MAP_INIT_CAPACITY * sizeof(*(hm)->stat));   \
+    ret.capacity = HASH_MAP_INIT_CAPACITY;                                 \
+} while (0)                                                                 
+
 #define hm_del(hm, .../* key */) do {                                      \
     assert((hm)->capacity > 0);                                            \
     ssize_t index = hm_find(*(hm), __VA_ARGS__);                           \
@@ -256,15 +250,6 @@ struct_name struct_name##__new_on_stack(size_t capacity,                   \
            "hm_get_copy only available for managed hashmaps"),             \
     (hm).val_new(hm_get((hm), __VA_ARGS__))                                \
 )                                                                           
-
-#define hm_init(hm) do {                                                   \
-    (hm)->keys = (hm)->alloc(HASH_MAP_INIT_COUNT * sizeof(*(hm)->keys));   \
-    (hm)->vals = (hm)->alloc(HASH_MAP_INIT_COUNT * sizeof(*(hm)->vals));   \
-    (hm)->stat = (hm)->alloc(HASH_MAP_INIT_COUNT * sizeof(*(hm)->stat));   \
-    memset((hm)->keys, 0, HASH_MAP_INIT_COUNT * sizeof(*(hm)->keys));      \
-    memset((hm)->vals, 0, HASH_MAP_INIT_COUNT * sizeof(*(hm)->vals));      \
-    memset((hm)->stat, 0, HASH_MAP_INIT_COUNT * sizeof(*(hm)->stat));      \
-} while (0)                                                                 
 
 #define hm_exists(hm, ...) ((hm).find((hm), __VA_ARGS__) >= 0)
 
@@ -327,6 +312,9 @@ uint32_t str_hash(size_t capacity, char* data) { return FNV_1a(data, strlen(data
 bool str_equals(char* data1, char* data2) { return strcmp(data1, data2) == 0; }
 void strfree(char* str) { free(str); }
 void str_print(char* data) { printf("\"%s\"", data); }
+
+
+/* -- EXAMPLE USAGE -- */
 
 typedef struct {
     double bar;
