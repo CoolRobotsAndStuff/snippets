@@ -43,8 +43,8 @@ typedef struct struct_name {                                               \
     size_t count;                                                          \
 } struct_name;                                                             \
                                                                            \
-static size_t struct_name##__key_size = sizeof(key_type);            \
-static size_t struct_name##__val_size = sizeof(val_type);            \
+static size_t struct_name##__key_size = sizeof(key_type);                  \
+static size_t struct_name##__val_size = sizeof(val_type);                  \
                                                                            \
 bool func_prefix##_next(struct_name hs, size_t* i) {                       \
     for (; (*i) < hs.capacity; (*i)++) {                                   \
@@ -128,7 +128,8 @@ bool func_prefix##_check_get(struct_name hm, key_type key, val_type* ret) {\
     return true;                                                           \
 }                                                                          \
                                                                            \
-bool func_prefix##_check_get_copy(struct_name hm, key_type key, val_type* ret) {\
+bool func_prefix##_check_get_copy(struct_name hm,                          \
+                                  key_type key, val_type* ret) {           \
     assert((hm).val_new != NULL &&                                         \
            "hm_get_copy only available for managed hashmaps");             \
     ssize_t index = hm_find(hm, key);                                      \
@@ -234,7 +235,10 @@ struct_name struct_name##__new_on_stack(size_t capacity,                   \
                                        char* keys,                         \
                                        char* vals,                         \
                                        char* stat) {                       \
-    return func_prefix##_new_on_stack(capacity, (key_type*)keys, (val_type*)vals, stat);         \
+    return func_prefix##_new_on_stack(capacity,                            \
+                                     (key_type*)keys,                      \
+                                     (val_type*)vals,                      \
+                                     stat);                                \
 }                                                                           
 
 #define hm_del(hm, .../* key */) do {                                      \
@@ -286,27 +290,27 @@ struct_name struct_name##__new_on_stack(size_t capacity,                   \
     (hm)->count = 0;                                                       \
 } while (0)                                                                 
 
-#define hm_print(hm) do {                              \
-    assert(hm.key_print != NULL &&                     \
-           hm.val_print != NULL &&                     \
-           "No printers specified for this hash map.");\
-    printf("{");                                       \
-    for (size_t i = 0; hm_next((hm), &i); ++i) {       \
-        printf("\n    ");                              \
-        hm.key_print((hm).keys[i]);                    \
-        printf(": ");                                  \
-        hm.val_print((hm).vals[i]);                    \
-        printf(",");                                   \
-    }                                                  \
-    printf("\b ");                                     \
-    puts("\n}");                                       \
-} while (0)                                             
+#define hm_print(hm) do {                                                  \
+    assert(hm.key_print != NULL &&                                         \
+           hm.val_print != NULL &&                                         \
+           "No printers specified for this hash map.");                    \
+    printf("{");                                                           \
+    for (size_t i = 0; hm_next((hm), &i); ++i) {                           \
+        printf("\n    ");                                                  \
+        hm.key_print((hm).keys[i]);                                        \
+        printf(": ");                                                      \
+        hm.val_print((hm).vals[i]);                                        \
+        printf(",");                                                       \
+    }                                                                      \
+    printf("\b ");                                                         \
+    puts("\n}");                                                           \
+} while (0)                                                                 
 
-#define hm_new_on_stack(type, cap) (                          \
-    type##__new_on_stack(cap, alloca(type##__key_size*cap),   \
-                              alloca(type##__val_size*cap),   \
-                              alloca(sizeof(char)*cap))       \
-)
+#define hm_new_on_stack(type, cap) (                                       \
+    type##__new_on_stack(cap, alloca(type##__key_size*cap),                \
+                              alloca(type##__val_size*cap),                \
+                              alloca(sizeof(char)*cap))                    \
+)                                                                           
 
 uint32_t FNV_1a(void *key, int length) {
     uint8_t *bytes = (uint8_t*)key;
