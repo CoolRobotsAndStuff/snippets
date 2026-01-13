@@ -291,10 +291,16 @@ struct_name struct_name##__new_on_stack(size_t capacity,                   \
     puts("\n}");                                                           \
 } while (0)                                                                 
 
-#define hm_new_on_stack(type, cap) (                                       \
+#define hm_new_alloca(type, cap) (                                         \
     type##__new_on_stack(cap, alloca(type##__key_size*cap),                \
                               alloca(type##__val_size*cap),                \
                               alloca(sizeof(char)*cap))                    \
+)                                                                           
+
+#define hm_new_on_stack(type, hm, cap) (                                   \
+    type##__new_on_stack(cap, (char[sizeof(hm.keys)*cap]){0},              \
+                              (char[sizeof(hm.vals)*cap]){0},              \
+                              (char[cap]){0})                              \
 )                                                                           
 
 uint32_t FNV_1a(void *key, int length) {
@@ -424,7 +430,7 @@ int main() {
     hm_free(&hm2);
     hm_free(&hm3);
 
-    Str2Str hm4 = hm_new_on_stack(Str2Str, 3);
+    Str2Str hm4 = hm_new_on_stack(Str2Str, hm4, 10);
 
     hm_set(&hm4, "foo"  , "bar");
     hm_set(&hm4, "let's", "go" );
@@ -433,7 +439,11 @@ int main() {
     hm_set(&hm4, "try", "this" );
     hm_set(&hm4, "try", "that" );
     //hm_set(&hm4, "this", "will error out, exceeded capacity" );
-
     hm_print(hm4);
+
+    Str2Str hm5 = hm_new_alloca(Str2Str, 10);
+    hm_set(&hm5, "hi"  , "hello");
+    hm_set(&hm5, "bye", "goodbye" );
+    hm_print(hm5);
 }
 
