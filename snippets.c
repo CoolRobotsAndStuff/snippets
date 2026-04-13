@@ -75,7 +75,7 @@ do {                                                                            
     memcpy((da1)->items + (da1)->count, (da2).items, (da2).count*sizeof(*(da2).items)); \
 } while(0)
 
-#define da_each(da, val_ptr) (size_t da__i = 0; (da__i<(da).count ? (*(val_ptr) = (da).items[i], 1); 0); ++da__i)
+#define da_each(da, val_ptr) (size_t da__i = 0; (da__i<(da).count ? (*(val_ptr) = (da).items[da__i], 1) : 0); ++da__i)
 
 /* tag Time */
 
