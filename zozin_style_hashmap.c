@@ -133,8 +133,15 @@ void hm__set(void* hm_, void* key, size_t key_size, void* val, size_t val_size) 
     hm->stat[index] = HASHMAP_FULL;
 }
 
-#define hm_set(hm, key, ...) hm__set((hm), ((hm)->tmp_key = (key), &(hm)->tmp_key), sizeof((hm)->tmp_key), \
-                                            ((hm)->tmp_val = (__VA_ARGS__), &(hm)->tmp_val), sizeof((hm)->tmp_val))
+#define hm_set(hm, key, ...) do { \
+    char hm__tmp_key[sizeof((hm)->tmp_key)] = {0}; \
+    (hm)->tmp_key = (key); \
+    memcpy(&hm__tmp_key, &(hm)->tmp_key, sizeof((hm)->tmp_key)); \
+    char hm__tmp_val[sizeof((hm)->tmp_val)] = {0}; \
+    (hm)->tmp_val = (__VA_ARGS__); \
+    memcpy(&hm__tmp_val, &(hm)->tmp_val, sizeof((hm)->tmp_val)); \
+    hm__set((hm), &hm__tmp_key, sizeof((hm)->tmp_key), &hm__tmp_val, sizeof((hm)->tmp_val)); \
+} while(0)
 
 #define hm_get(hm, ...) (((hm).tmp_idx = hm_find((hm), (__VA_ARGS__))) >= 0 ? (hm).vals[(hm).tmp_idx] : (abort(), (hm).vals[0]))
 
@@ -193,9 +200,7 @@ typedef struct {
 
 typedef Hashmap(char*, Foo) Str2Foo;
 
-Str2Foo str2foo() ge
-cool   = 6.900000, 420
-no cringe in thi{
+Str2Foo str2foo() {
     return (Str2Foo) {
         .hash = str_hash,
         .eq = str_equals
@@ -208,6 +213,15 @@ int main() {
     hm_set(&hm, "hello",  "world" );
     hm_set(&hm, "mother", "fucker");
     hm_set(&hm, "mother", "fucka" );
+
+    hm_set(&hm, "bye", hm_get(hm, "hello"));
+    hm_set(&hm, hm_get(hm, "hello"), hm_get(hm, "hello"));
+
+    printf("{\n");
+    char *key, *val; 
+    for hm_each(hm, &key, &val)
+        printf("    %s: %s,\n", key, val);
+    printf("}\n");
 
     printf("hello  = %s\n", hm_get(hm, "hello" )); 
     printf("mother = %s\n", hm_get(hm, "mother"));
@@ -230,7 +244,6 @@ int main() {
     }
 
     printf("{\n");
-    char *key, *val; 
     for hm_each(hm, &key, &val)
         printf("    %s: %s,\n", key, val);
     printf("}\n");
