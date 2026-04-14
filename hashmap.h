@@ -13,6 +13,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stddef.h>
 #include <assert.h>
 #define HASHMAP_EMPTY 0
 #define HASHMAP_FULL 1
@@ -40,7 +41,7 @@ typedef struct {
     uint32_t (*hash)(size_t cap, key_t*);\
     key_t tmp_key;             \
     val_t tmp_val;             \
-    ssize_t tmp_idx;           \
+    ptrdiff_t tmp_idx;           \
 }
 
 void hm__set(void* hm_, void* key, size_t key_size, void* val, size_t val_size);
@@ -48,7 +49,7 @@ void hm__del(void* hm_, void* key, size_t key_size, size_t val_size);
 bool hm__each(void* hm_, size_t* i, void* key, size_t key_size, void* val, size_t val_size);
 bool hm__next(void* hm_, size_t* i);
 void hm__grow_if_needed(void* hm_, size_t key_size, size_t val_size);
-ssize_t hm__find(void* hm_, void* key, size_t key_size);
+ptrdiff_t hm__find(void* hm_, void* key, size_t key_size);
 
 #define hm_next(hm, i) hm__next(&(hm), i)
 #define hm_each(hm, key_ptr, val_ptr) (size_t hm__i = 0; hm__each(&(hm), &hm__i, key_ptr, sizeof((hm).tmp_key), val_ptr, sizeof((hm).tmp_val)); hm__i++)
@@ -87,7 +88,7 @@ bool hm_str_equals(char** data1, char** data2);
 void hm__set(void* hm_, void* key, size_t key_size, void* val, size_t val_size) {
     GenericHashmap* hm = hm_;
     hm__grow_if_needed(hm, key_size, val_size);
-    ssize_t index = hm__find(hm, key, key_size);
+    ptrdiff_t index = hm__find(hm, key, key_size);
     if (index < 0) {
         assert(hm->count < hm->capacity && "Exceeded hashmap capacity");
         index = hm->hash(hm->capacity, key);
@@ -104,7 +105,7 @@ void hm__set(void* hm_, void* key, size_t key_size, void* val, size_t val_size) 
 void hm__del(void* hm_, void* key, size_t key_size, size_t val_size) {
     GenericHashmap* hm = hm_;
     assert(hm->capacity > 0);
-    ssize_t index = hm__find(hm, key, key_size);
+    ptrdiff_t index = hm__find(hm, key, key_size);
     if (index < 0) return;
     hm->count--;
     memset(&hm->keys[index*key_size], 0, sizeof(key_size));
@@ -165,7 +166,7 @@ void hm__grow_if_needed(void* hm_, size_t key_size, size_t val_size) {
     hm->capacity = new_cap;
 }
 
-ssize_t hm__find(void* hm_, void* key, size_t key_size) {
+ptrdiff_t hm__find(void* hm_, void* key, size_t key_size) {
     GenericHashmap* hm = hm_;
     if (hm->capacity <= 0) return -1;
     size_t index = hm->hash(hm->capacity, key);
