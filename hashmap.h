@@ -1,9 +1,101 @@
 /* stb style single header library, if you don't know what that is look it up
+ * Compatible with C99 upwards
+ * This library is partly inspired by https://github.com/tsoding/ht.h
  * This is Public Domain.
  * Example usage:
- *
- *
- */
+------------------------------------------------------------------
+
+#define HASHMAP_IMPLEMENTATION
+#include "hashmap.h"
+
+typedef Hashmap(char*, char*) Str2Str;
+#define str2str() { .hash = hm_str_hash, .eq = hm_str_equals }
+
+typedef struct {
+    double bar;
+    int baz;
+} Foo;
+
+typedef Hashmap(char*, Foo) Str2Foo;
+#define str2foo() { .hash = hm_str_hash, .eq = hm_str_equals }
+
+int main() {
+    Str2Str hm = str2str();
+
+    hm_set(&hm, "hello",  "world" );
+    hm_set(&hm, "mother", "fucker");
+    hm_set(&hm, "mother", "fucka" );
+
+    hm_set(&hm, "bye", hm_get(hm, "hello"));
+    hm_set(&hm, hm_get(hm, "hello"), hm_get(hm, "hello"));
+
+    printf("{\n");
+    char *key, *val; 
+    for hm_each(hm, &key, &val)
+        printf("    %s: %s,\n", key, val);
+    printf("}\n");
+
+    printf("hello  = %s\n", hm_get(hm, "hello" )); 
+    printf("mother = %s\n", hm_get(hm, "mother"));
+
+    hm_set(&hm, "cringe", "67");
+    char* value;
+    if (hm_check_get(hm, "cringe", &value)) {
+        printf("cringe = %s\n", value);
+    } else {
+        puts("no cringe in this town");
+    }
+
+    puts("deleting cringe");
+    hm_del(&hm, "cringe");
+
+    if (hm_check_get(hm, "cringe", &value)) {
+        printf("cringe = %s\n", value);
+    } else {
+        puts("no cringe in this town");
+    }
+
+    printf("{\n");
+    for hm_each(hm, &key, &val)
+        printf("    %s: %s,\n", key, val);
+    printf("}\n");
+
+    puts("---------------------");
+
+    // Struct type (stored as value)
+    Str2Foo hm2 = str2foo();
+
+    hm_set(&hm2, "cool",   (Foo){6.9, 420});
+    hm_set(&hm2, "cringe", (Foo){6.7, 67 });
+
+    printf("{\n");
+    char *foo_key;
+    Foo foo;
+    for hm_each(hm2, &foo_key, &foo)
+        printf("    %s: { bar: %f, baz: %d}, \n", foo_key, foo.bar, foo.baz);
+    printf("}\n");
+
+    // get reference
+    printf("cool   = %lf, %d\n", hm_get(hm2, "cool").bar, hm_get(hm2, "cool").baz); 
+    if (hm_check_get(hm2, "cringe", &foo)) {
+        printf("cringe = %lf, %d\n", foo.bar, foo.baz);
+    } else {
+        puts("no cringe in this town");
+    }
+
+    puts("deleting cringe");
+    hm_del(&hm2, "cringe");
+
+    printf("cool   = %lf, %d\n", hm_get(hm2, "cool").bar, hm_get(hm2, "cool").baz); 
+    if (hm_check_get(hm2, "cringe", &foo)) {
+        printf("cringe = %lf, %d\n", foo.bar, foo.baz);
+    } else {
+        puts("no cringe in this town");
+    }
+}
+
+------------------------------------------------------------------
+*/
 
 #ifndef __HASHMAP_H__
 #define __HASHMAP_H__
