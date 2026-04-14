@@ -1,7 +1,13 @@
-/* Rather large snippet meant to be copy-pasted directly into your code.
- * Example usage at the end of the file.
+/* stb style single header library, if you don't know what that is look it up
  * This is Public Domain.
+ * Example usage:
+ *
+ *
  */
+
+#ifndef __HASHMAP_H__
+#define __HASHMAP_H__
+
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -37,15 +43,74 @@ typedef struct {
     ssize_t tmp_idx;           \
 }
 
-bool hm__next(void* hm_, size_t* i) {
-    GenericHashmap* hm = hm_;
-    for (; (*i) < hm->capacity; (*i)++) {
-        if (hm->stat[*i] == HASHMAP_FULL) return true;
-    }
-    return false;
-}
+void hm__set(void* hm_, void* key, size_t key_size, void* val, size_t val_size);
+void hm__del(void* hm_, void* key, size_t key_size, size_t val_size);
+bool hm__each(void* hm_, size_t* i, void* key, size_t key_size, void* val, size_t val_size);
+bool hm__next(void* hm_, size_t* i);
+void hm__grow_if_needed(void* hm_, size_t key_size, size_t val_size);
+ssize_t hm__find(void* hm_, void* key, size_t key_size);
 
 #define hm_next(hm, i) hm__next(&(hm), i)
+#define hm_each(hm, key_ptr, val_ptr) (size_t hm__i = 0; hm__each(&(hm), &hm__i, key_ptr, sizeof((hm).tmp_key), val_ptr, sizeof((hm).tmp_val)); hm__i++)
+#define hm_find(hm, key) hm__find(&(hm), ((hm).tmp_key = (key), &(hm).tmp_key), sizeof((hm).tmp_key))
+
+#define hm_set(hm, key, ...) do { \
+    char hm__tmp_key[sizeof((hm)->tmp_key)] = {0}; \
+    (hm)->tmp_key = (key); \
+    memcpy(&hm__tmp_key, &(hm)->tmp_key, sizeof((hm)->tmp_key)); \
+    char hm__tmp_val[sizeof((hm)->tmp_val)] = {0}; \
+    (hm)->tmp_val = (__VA_ARGS__); \
+    memcpy(&hm__tmp_val, &(hm)->tmp_val, sizeof((hm)->tmp_val)); \
+    hm__set((hm), &hm__tmp_key, sizeof((hm)->tmp_key), &hm__tmp_val, sizeof((hm)->tmp_val)); \
+} while(0)
+
+#define hm_get(hm, ...) (((hm).tmp_idx = hm_find((hm), (__VA_ARGS__))) >= 0 ? (hm).vals[(hm).tmp_idx] : (abort(), (hm).vals[0]))
+#define hm_check_get(hm, key, val) (              \
+    ((hm).tmp_idx = hm_find((hm), (key))) >= 0 ? ( \
+        *val = (hm).vals[(hm).tmp_idx],             \
+        1                                            \
+    ) : (                                             \
+        0                                              \
+    )                                                   \
+)
+
+#define hm_del(hm, key) hm__del((hm), ((hm)->tmp_key = (key), &(hm)->tmp_key), sizeof((hm)->tmp_key), sizeof((hm)->tmp_val))
+
+uint32_t hm_FNV_1a(void *key, int length);
+uint32_t hm_str_hash(size_t capacity, char** data);
+bool hm_str_equals(char** data1, char** data2);
+
+#endif // __HASHMAP_H__
+
+#ifdef HASHMAP_IMPLEMENTATION
+
+void hm__set(void* hm_, void* key, size_t key_size, void* val, size_t val_size) {
+    GenericHashmap* hm = hm_;
+    hm__grow_if_needed(hm, key_size, val_size);
+    ssize_t index = hm__find(hm, key, key_size);
+    if (index < 0) {
+        assert(hm->count < hm->capacity && "Exceeded hashmap capacity");
+        index = hm->hash(hm->capacity, key);
+        assert(index < hm->capacity);
+        while (hm->stat[index] == HASHMAP_FULL)
+            index = (index + 1)%hm->capacity;
+        hm->count++;
+    }
+    memcpy(&hm->keys[index*key_size], key, key_size);
+    memcpy(&hm->vals[index*val_size], val, val_size);
+    hm->stat[index] = HASHMAP_FULL;
+}
+
+void hm__del(void* hm_, void* key, size_t key_size, size_t val_size) {
+    GenericHashmap* hm = hm_;
+    assert(hm->capacity > 0);
+    ssize_t index = hm__find(hm, key, key_size);
+    if (index < 0) return;
+    hm->count--;
+    memset(&hm->keys[index*key_size], 0, sizeof(key_size));
+    memset(&hm->vals[index*val_size], 0, sizeof(val_size));
+    hm->stat[index] = HASHMAP_TOMBSTONE;
+}
 
 bool hm__each(void* hm_, size_t* i, void* key, size_t key_size, void* val, size_t val_size) {
     GenericHashmap* hm = hm_;
@@ -59,7 +124,13 @@ bool hm__each(void* hm_, size_t* i, void* key, size_t key_size, void* val, size_
     return false;
 }
 
-#define hm_each(hm, key_ptr, val_ptr) (size_t hm__i = 0; hm__each(&(hm), &hm__i, key_ptr, sizeof((hm).tmp_key), val_ptr, sizeof((hm).tmp_val)); hm__i++)
+bool hm__next(void* hm_, size_t* i) {
+    GenericHashmap* hm = hm_;
+    for (; (*i) < hm->capacity; (*i)++) {
+        if (hm->stat[*i] == HASHMAP_FULL) return true;
+    }
+    return false;
+}
 
 void hm__grow_if_needed(void* hm_, size_t key_size, size_t val_size) {
     GenericHashmap* hm = hm_;
@@ -114,61 +185,8 @@ ssize_t hm__find(void* hm_, void* key, size_t key_size) {
     }
 }
 
-#define hm_find(hm, key) hm__find(&(hm), ((hm).tmp_key = (key), &(hm).tmp_key), sizeof((hm).tmp_key))
 
-void hm__set(void* hm_, void* key, size_t key_size, void* val, size_t val_size) {
-    GenericHashmap* hm = hm_;
-    hm__grow_if_needed(hm, key_size, val_size);
-    ssize_t index = hm__find(hm, key, key_size);
-    if (index < 0) {
-        assert(hm->count < hm->capacity && "Exceeded hashmap capacity");
-        index = hm->hash(hm->capacity, key);
-        assert(index < hm->capacity);
-        while (hm->stat[index] == HASHMAP_FULL)
-            index = (index + 1)%hm->capacity;
-        hm->count++;
-    }
-    memcpy(&hm->keys[index*key_size], key, key_size);
-    memcpy(&hm->vals[index*val_size], val, val_size);
-    hm->stat[index] = HASHMAP_FULL;
-}
-
-#define hm_set(hm, key, ...) do { \
-    char hm__tmp_key[sizeof((hm)->tmp_key)] = {0}; \
-    (hm)->tmp_key = (key); \
-    memcpy(&hm__tmp_key, &(hm)->tmp_key, sizeof((hm)->tmp_key)); \
-    char hm__tmp_val[sizeof((hm)->tmp_val)] = {0}; \
-    (hm)->tmp_val = (__VA_ARGS__); \
-    memcpy(&hm__tmp_val, &(hm)->tmp_val, sizeof((hm)->tmp_val)); \
-    hm__set((hm), &hm__tmp_key, sizeof((hm)->tmp_key), &hm__tmp_val, sizeof((hm)->tmp_val)); \
-} while(0)
-
-#define hm_get(hm, ...) (((hm).tmp_idx = hm_find((hm), (__VA_ARGS__))) >= 0 ? (hm).vals[(hm).tmp_idx] : (abort(), (hm).vals[0]))
-
-#define hm_check_get(hm, key, val) (              \
-    ((hm).tmp_idx = hm_find((hm), (key))) >= 0 ? ( \
-        *val = (hm).vals[(hm).tmp_idx],             \
-        1                                            \
-    ) : (                                             \
-        0                                              \
-    )                                                   \
-)
-
-
-void hm__del(void* hm_, void* key, size_t key_size, size_t val_size) {
-    GenericHashmap* hm = hm_;
-    assert(hm->capacity > 0);
-    ssize_t index = hm__find(hm, key, key_size);
-    if (index < 0) return;
-    hm->count--;
-    memset(&hm->keys[index*key_size], 0, sizeof(key_size));
-    memset(&hm->vals[index*val_size], 0, sizeof(val_size));
-    hm->stat[index] = HASHMAP_TOMBSTONE;
-}
-
-#define hm_del(hm, key) hm__del((hm), ((hm)->tmp_key = (key), &(hm)->tmp_key), sizeof((hm)->tmp_key), sizeof((hm)->tmp_val))
-
-uint32_t FNV_1a(void *key, int length) {
+uint32_t hm_FNV_1a(void *key, int length) {
     uint8_t *bytes = (uint8_t*)key;
     uint32_t hash = 2166136261u;
 
@@ -179,105 +197,8 @@ uint32_t FNV_1a(void *key, int length) {
     return hash;
 }
 
-uint32_t str_hash(size_t capacity, char** data) { return FNV_1a(*data, strlen(*data))%capacity; }
-bool str_equals(char** data1, char** data2) { return strcmp(*data1, *data2) == 0; }
+uint32_t hm_str_hash(size_t capacity, char** data) { return hm_FNV_1a(*data, strlen(*data))%capacity; }
+bool hm_str_equals(char** data1, char** data2) { return strcmp(*data1, *data2) == 0; }
 
-/* -- EXAMPLE USAGE -- */
+#endif // HASHMAP_IMPLEMENTATION
 
-typedef Hashmap(char*, char*) Str2Str;
-
-Str2Str str2str() {
-    return (Str2Str) {
-        .hash = str_hash,
-        .eq = str_equals
-    };
-}
-
-typedef struct {
-    double bar;
-    int baz;
-} Foo;
-
-typedef Hashmap(char*, Foo) Str2Foo;
-
-Str2Foo str2foo() {
-    return (Str2Foo) {
-        .hash = str_hash,
-        .eq = str_equals
-    };
-}
-
-int main() {
-    Str2Str hm = str2str();
-
-    hm_set(&hm, "hello",  "world" );
-    hm_set(&hm, "mother", "fucker");
-    hm_set(&hm, "mother", "fucka" );
-
-    hm_set(&hm, "bye", hm_get(hm, "hello"));
-    hm_set(&hm, hm_get(hm, "hello"), hm_get(hm, "hello"));
-
-    printf("{\n");
-    char *key, *val; 
-    for hm_each(hm, &key, &val)
-        printf("    %s: %s,\n", key, val);
-    printf("}\n");
-
-    printf("hello  = %s\n", hm_get(hm, "hello" )); 
-    printf("mother = %s\n", hm_get(hm, "mother"));
-
-    hm_set(&hm, "cringe", "67");
-    char* value;
-    if (hm_check_get(hm, "cringe", &value)) {
-        printf("cringe = %s\n", value);
-    } else {
-        puts("no cringe in this town");
-    }
-
-    puts("deleting cringe");
-    hm_del(&hm, "cringe");
-
-    if (hm_check_get(hm, "cringe", &value)) {
-        printf("cringe = %s\n", value);
-    } else {
-        puts("no cringe in this town");
-    }
-
-    printf("{\n");
-    for hm_each(hm, &key, &val)
-        printf("    %s: %s,\n", key, val);
-    printf("}\n");
-
-    puts("---------------------");
-
-    // Struct type (stored as value)
-    Str2Foo hm2 = str2foo();
-
-    hm_set(&hm2, "cool",   (Foo){6.9, 420});
-    hm_set(&hm2, "cringe", (Foo){6.7, 67 });
-
-    printf("{\n");
-    char *foo_key;
-    Foo foo;
-    for hm_each(hm2, &foo_key, &foo)
-        printf("    %s: { bar: %f, baz: %d}, \n", foo_key, foo.bar, foo.baz);
-    printf("}\n");
-
-    // get reference
-    printf("cool   = %lf, %d\n", hm_get(hm2, "cool").bar, hm_get(hm2, "cool").baz); 
-    if (hm_check_get(hm2, "cringe", &foo)) {
-        printf("cringe = %lf, %d\n", foo.bar, foo.baz);
-    } else {
-        puts("no cringe in this town");
-    }
-
-    puts("deleting cringe");
-    hm_del(&hm2, "cringe");
-
-    printf("cool   = %lf, %d\n", hm_get(hm2, "cool").bar, hm_get(hm2, "cool").baz); 
-    if (hm_check_get(hm2, "cringe", &foo)) {
-        printf("cringe = %lf, %d\n", foo.bar, foo.baz);
-    } else {
-        puts("no cringe in this town");
-    }
-}
